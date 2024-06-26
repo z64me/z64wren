@@ -735,6 +735,12 @@ static inline bool bool_eq_num(Value a, Value b)
   return AS_BOOL(a) == !!AS_NUM(b);
 }
 
+// makes !0 behave like it does in C
+DEF_PRIMITIVE(num_not)
+{
+  RETURN_VAL(AS_NUM(args[0]) ? FALSE_VAL : TRUE_VAL);
+}
+
 DEF_PRIMITIVE(num_eqeq)
 {
   if (!IS_NUM(args[1]))
@@ -1412,6 +1418,7 @@ void wrenInitializeCore(WrenVM* vm)
   PRIMITIVE(vm->numClass->obj.classObj, "smallest", num_smallest);
   PRIMITIVE(vm->numClass->obj.classObj, "maxSafeInteger", num_maxSafeInteger);
   PRIMITIVE(vm->numClass->obj.classObj, "minSafeInteger", num_minSafeInteger);
+  PRIMITIVE(vm->numClass, "!", num_not);
   PRIMITIVE(vm->numClass, "-(_)", num_minus);
   PRIMITIVE(vm->numClass, "+(_)", num_plus);
   PRIMITIVE(vm->numClass, "*(_)", num_multiply);
