@@ -240,8 +240,8 @@ typedef struct sLoop
   // Index of the instruction that the loop should jump back to.
   int start;
 
-  // Index of the argument for the CODE_JUMP_IF instruction used to exit the
-  // loop. Stored so we can patch it once we know where the loop ends.
+  // Index of the argument for the CODE_JUMP_OUT_OF_LOOP instruction.
+  // Stored so we can patch it once we know where the loop ends.
   int exitJump;
 
   // Index of the first instruction of the body of the loop.
@@ -2921,6 +2921,7 @@ static int getByteCountForArguments(const uint8_t* bytecode,
     case CODE_CALL_16:
     case CODE_JUMP:
     case CODE_LOOP:
+    case CODE_JUMP_OUT_OF_LOOP:
     case CODE_JUMP_IF:
     case CODE_AND:
     case CODE_OR:
@@ -2973,12 +2974,12 @@ static void startLoop(Compiler* compiler, Loop* loop)
   compiler->loop = loop;
 }
 
-// Emits the [CODE_JUMP_IF] instruction used to test the loop condition and
+// Emits the [CODE_JUMP_OUT_OF_LOOP] instruction used to test the loop condition and
 // potentially exit the loop. Keeps track of the instruction so we can patch it
 // later once we know where the end of the body is.
 static void testExitLoop(Compiler* compiler)
 {
-  compiler->loop->exitJump = emitJump(compiler, CODE_JUMP_IF);
+  compiler->loop->exitJump = emitJump(compiler, CODE_JUMP_OUT_OF_LOOP);
 }
 
 // Compiles the body of the loop and tracks its extent so that contained "break"

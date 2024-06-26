@@ -245,7 +245,17 @@ static inline bool wrenIsLocalName(const char* name)
 
 static inline bool wrenIsFalsyValue(Value value)
 {
+  return IS_FALSE(value) || IS_NULL(value)
+    || (IS_NUM(value) && (AS_NUM(value) == 0.0))
+  ;
+}
+
+static inline bool wrenIsFalsyValueStrict(Value value)
+{
   return IS_FALSE(value) || IS_NULL(value);
 }
+
+// if you don't want falsy 0, just uncomment this:
+//#define wrenIsFalsyValue wrenIsFalsyValueStrict
 
 #endif

@@ -1161,6 +1161,15 @@ static WrenInterpretResult runInterpreter(WrenVM* vm, register ObjFiber* fiber)
       DISPATCH();
     }
 
+    CASE_CODE(JUMP_OUT_OF_LOOP):
+    {
+      uint16_t offset = READ_SHORT();
+      Value condition = POP();
+
+      if (wrenIsFalsyValueStrict(condition)) ip += offset;
+      DISPATCH();
+    }
+
     CASE_CODE(JUMP_IF):
     {
       uint16_t offset = READ_SHORT();

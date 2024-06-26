@@ -123,6 +123,9 @@ OPCODE(JUMP, 0)
 // Jump the instruction pointer [arg] backward.
 OPCODE(LOOP, 0)
 
+// Pop and if not truthy (strict) then jump the instruction pointer [arg] forward.
+OPCODE(JUMP_OUT_OF_LOOP, -1)
+
 // Pop and if not truthy then jump the instruction pointer [arg] forward.
 OPCODE(JUMP_IF, -1)
 
