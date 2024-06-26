@@ -711,16 +711,68 @@ DEF_PRIMITIVE(num_mod)
   RETURN_NUM(fmod(AS_NUM(args[0]), AS_NUM(args[1])));
 }
 
+/*
+static int num_cmp_bool_generic(Value a, Value b)
+{
+  if ((IS_BOOL(a) || IS_BOOL(b)) && (IS_NUM(a) || IS_NUM(b)))
+  {
+    return (IS_NUM(a) && !!AS_NUM(a) == AS_BOOL(b))
+      || (IS_NUM(b) && !!AS_NUM(b) == AS_BOOL(a));
+  }
+  return -1;
+}
+*/
+
+// assumes IS_NUM(a) and IS_BOOL(b)
+static inline bool num_eq_bool(Value a, Value b)
+{
+  return !!AS_NUM(a) == AS_BOOL(b);
+}
+
+// assumes IS_BOOL(a) and IS_NUM(b)
+static inline bool bool_eq_num(Value a, Value b)
+{
+  return AS_BOOL(a) == !!AS_NUM(b);
+}
+
 DEF_PRIMITIVE(num_eqeq)
 {
-  if (!IS_NUM(args[1])) RETURN_FALSE;
+  if (!IS_NUM(args[1]))
+  {
+    if (IS_BOOL(args[1])) RETURN_BOOL(num_eq_bool(args[0], args[1]));
+    RETURN_FALSE;
+  }
   RETURN_BOOL(AS_NUM(args[0]) == AS_NUM(args[1]));
 }
 
 DEF_PRIMITIVE(num_bangeq)
 {
-  if (!IS_NUM(args[1])) RETURN_TRUE;
+  if (!IS_NUM(args[1]))
+  {
+    if (IS_BOOL(args[1])) RETURN_BOOL(!num_eq_bool(args[0], args[1]));
+    RETURN_TRUE;
+  }
   RETURN_BOOL(AS_NUM(args[0]) != AS_NUM(args[1]));
+}
+
+DEF_PRIMITIVE(bool_eqeq)
+{
+  if (!IS_BOOL(args[1]))
+  {
+    if (IS_NUM(args[1])) RETURN_BOOL(bool_eq_num(args[0], args[1]));
+    RETURN_FALSE;
+  }
+  RETURN_BOOL(AS_BOOL(args[0]) == AS_BOOL(args[1]));
+}
+
+DEF_PRIMITIVE(bool_bangeq)
+{
+  if (!IS_BOOL(args[1]))
+  {
+    if (IS_NUM(args[1])) RETURN_BOOL(!bool_eq_num(args[0], args[1]));
+    RETURN_TRUE;
+  }
+  RETURN_BOOL(AS_BOOL(args[0]) != AS_BOOL(args[1]));
 }
 
 DEF_PRIMITIVE(num_bitwiseNot)
@@ -1301,6 +1353,8 @@ void wrenInitializeCore(WrenVM* vm)
   vm->boolClass = AS_CLASS(wrenFindVariable(vm, coreModule, "Bool"));
   PRIMITIVE(vm->boolClass, "toString", bool_toString);
   PRIMITIVE(vm->boolClass, "!", bool_not);
+  PRIMITIVE(vm->boolClass, "==(_)", bool_eqeq);
+  PRIMITIVE(vm->boolClass, "!=(_)", bool_bangeq);
 
   vm->fiberClass = AS_CLASS(wrenFindVariable(vm, coreModule, "Fiber"));
   PRIMITIVE(vm->fiberClass->obj.classObj, "new(_)", fiber_new);
