@@ -728,6 +728,21 @@ static void skipBlockComment(Parser* parser)
   }
 }
 
+// Reads the next character, which should be a binary digit (0, 1, or _) and
+// returns its numeric value. If the character isn't a binary digit, returns -1.
+// If the character is a separator (_), returns -2.
+static int readBinaryDigit(Parser* parser)
+{
+  char c = nextChar(parser);
+  if (c == '0' || c == '1') return c - '0';
+  if (c == '_') return -2;
+
+  // Don't consume it if it isn't expected. Keeps us from reading past the end
+  // of an unterminated string.
+  parser->currentChar--;
+  return -1;
+}
+
 // Reads the next character, which should be a hex digit (0-9, a-f, or A-F) and
 // returns its numeric value. If the character isn't a hex digit, returns -1.
 static int readHexDigit(Parser* parser)
@@ -744,13 +759,34 @@ static int readHexDigit(Parser* parser)
 }
 
 // Parses the numeric value of the current token.
-static void makeNumber(Parser* parser, bool isHex)
+static void makeNumber(Parser* parser, bool isHex, bool isBinary)
 {
   errno = 0;
 
   if (isHex)
   {
     parser->next.value = NUM_VAL((double)strtoll(parser->tokenStart, NULL, 16));
+  }
+  else if (isBinary)
+  {
+    uint64_t result = 0;
+    for (const char *cc = parser->tokenStart + 2; cc; ++cc) // +2 skips 0b prefix
+    {
+      int c = *cc;
+      if (c == '0' || c == '1')
+      {
+        // uppermost bit already populated, number too big
+        if (result & (1ULL << 63ULL))
+          errno = ERANGE;
+        result <<= 1;
+        result |= c - '0';
+      }
+      else if (c == '_') // separator allows 0b0100_1101_0010
+        continue;
+      else
+        break;
+    }
+    parser->next.value = NUM_VAL((double)result);
   }
   else
   {
@@ -769,6 +805,18 @@ static void makeNumber(Parser* parser, bool isHex)
   makeToken(parser, TOKEN_NUMBER);
 }
 
+// Finishes lexing a binary number literal.
+static void readBinaryNumber(Parser* parser)
+{
+  // Skip past the `b` used to denote a binary literal.
+  nextChar(parser);
+
+  // Iterate over all the valid binary digits found.
+  while (readBinaryDigit(parser) != -1) continue;
+
+  makeNumber(parser, false, true);
+}
+
 // Finishes lexing a hexadecimal number literal.
 static void readHexNumber(Parser* parser)
 {
@@ -778,7 +826,7 @@ static void readHexNumber(Parser* parser)
   // Iterate over all the valid hexadecimal digits found.
   while (readHexDigit(parser) != -1) continue;
 
-  makeNumber(parser, true);
+  makeNumber(parser, true, false);
 }
 
 // Finishes lexing a number literal.
@@ -811,7 +859,7 @@ static void readNumber(Parser* parser)
     while (isDigit(peekChar(parser))) nextChar(parser);
   }
 
-  makeNumber(parser, false);
+  makeNumber(parser, false, false);
 }
 
 // Finishes lexing an identifier. Handles reserved words.
@@ -1429,6 +1477,11 @@ static void nextToken(Parser* parser)
         if (peekChar(parser) == 'x')
         {
           readHexNumber(parser);
+          return;
+        }
+        else if (peekChar(parser) == 'b')
+        {
+          readBinaryNumber(parser);
           return;
         }
 
