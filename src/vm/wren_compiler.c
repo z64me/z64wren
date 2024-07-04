@@ -1047,6 +1047,52 @@ static void readString(Parser* parser)
   makeToken(parser, type);
 }
 
+static bool newlineHacksHandleComment(const char **result, int *currentLine)
+{
+  const char *cc = *result;
+  int tmp = 0;
+  
+  if (!currentLine)
+    currentLine = &tmp;
+  
+  if (cc[0] != '/')
+    return false;
+  
+  // line comment
+  if (cc[1] == '/')
+  {
+    while (*cc && *cc != '\n')
+      ++cc;
+    if (*cc == '\n')
+      ++cc;
+    *currentLine += 1;
+  }
+  // block comment
+  else if (cc[1] == '*')
+  {
+    int level = 0;
+    while (*cc)
+    {
+      if (*cc == '\n')
+        *currentLine += 1;
+      if (cc[0] == '/' && cc[1] == '*')
+        level++, cc += 2;
+      else if (cc[0] == '*' && cc[1] == '/')
+        level--, cc += 2;
+      else
+        cc += 1;
+      if (!level)
+        break;
+    }
+  }
+  // not a comment
+  else
+    return false;
+  
+  *result = cc;
+  return true;
+}
+
 //
 // more forgiving C-style line breaks and comments
 //
@@ -1161,16 +1207,23 @@ static void newlineHacks(Parser* parser)
   // skip whitespace inside ()'s
   if (parenStack[parenIndex])
   {
-    for (int i = 0; parser->currentChar[i] != '\0'; ++i)
+    for (const char *cc = parser->currentChar; *cc != '\0'; ++cc)
     {
-      char c = parser->currentChar[i];
-      if (c != ' ' && c != '\r' && c != '\n' && c != '\t')
+      char c = *cc;
+      if (c == '\n')
+        parser->currentLine++;
+      else if (c != ' ' && c != '\r' && c != '\t')
       {
-        parser->currentChar += i;
+        // check for comment and parse if necessary
+        if (newlineHacksHandleComment(&cc, &parser->currentLine))
+        {
+          --cc; // to counteract the ++c on each loop
+          continue;
+        }
+        
+        parser->currentChar = cc;
         break;
       }
-      else if (c == '\n')
-        parser->currentLine++;
     }
   }
   #endif
@@ -1179,44 +1232,19 @@ static void newlineHacks(Parser* parser)
   // also accounts for comments and if/else
   const char *nextPrintableAddr = 0;
   char nextPrintable = 0;
-  int nextPrintableLines = 0;
-  int commentLines = 0;
+  int linesAdvanced = 0;
   for (const char *cc = parser->currentChar; *cc != '\0'; ++cc)
   {
     char c = *cc;
     if (c == '\n')
-      nextPrintableLines += 1;
+      linesAdvanced += 1;
     else if (c != ' ' && c != '\r' && c != '\t')
     {
-      if (c == '/')
+      // check for comment and parse if necessary
+      if (newlineHacksHandleComment(&cc, &linesAdvanced))
       {
-        // line comment
-        if (cc[1] == '/')
-        {
-          while (*cc && *cc != '\n')
-            ++cc;
-          commentLines += 1;
-          continue;
-        }
-        // block comment
-        else if (cc[1] == '*')
-        {
-          int level = 0;
-          while (*cc)
-          {
-            if (*cc == '\n')
-              commentLines += 1;
-            if (cc[0] == '/' && cc[1] == '*')
-              level++, cc += 2;
-            else if (cc[0] == '*' && cc[1] == '/')
-              level--, cc += 2;
-            else
-              cc += 1;
-            if (!level)
-              break;
-          }
-          continue;
-        }
+        --cc; // to counteract the ++c on each loop
+        continue;
       }
       
       // hacks
@@ -1238,147 +1266,15 @@ static void newlineHacks(Parser* parser)
       break;
     }
   }
-  /*
-  if (nextPrintableLines > 1
-    || (nextPrintable == '{'
-      && (currentType == TOKEN_LEFT_BRACE // {{
-        || currentType == TOKEN_LINE
-      )
-    )
-    || (nextPrintable == '|' && currentType != TOKEN_LEFT_BRACE) // only allow {|
-  )
-  */
   if (inclusionLevel <= exclusionLevel)
     nextPrintable = 0;
   if (nextPrintable == '{')
   {
     inclusionLevel = exclusionLevel = 0; // consume
-    parser->currentLine += nextPrintableLines;
+    parser->currentLine += linesAdvanced;
     parser->currentChar = nextPrintableAddr;
   }
 }
-
-#if 0 // old version, most hacky, experimenting
-static void newlineHacksOld(Parser* parser)
-{
-  return;
-  // statics
-  static int parenStack[64];
-  static int parenIndex = 0;
-  static bool isCurlyQueued = false;
-  static bool isImport = false;
-  static bool isGenericHack = false;
-  
-  // zero-initialize the statics
-  if (!parser)
-  {
-    memset(parenStack, 0, sizeof(parenStack));
-    parenIndex = 0;
-    isCurlyQueued = false;
-    isImport = false;
-    isGenericHack = false;
-    return;
-  }
-  
-  // leniency: allow line breaks inside conditional statements, as well
-  // as immediately after them (so curly braces can be on their own line)
-  TokenType currentType = parser->current.type;
-  bool doCurly = false;
-  // these tokens all require newline hack
-  if (currentType == TOKEN_CLASS
-    || currentType == TOKEN_CONSTRUCT
-    //|| currentType == TOKEN_STATIC
-    //|| currentType == TOKEN_FOREIGN
-  )
-    isGenericHack = true;
-  if (isGenericHack)
-  {
-    if (currentType == TOKEN_LINE
-      || currentType == TOKEN_RIGHT_BRACE
-      || currentType == TOKEN_LEFT_BRACE
-    )
-      isGenericHack = false;
-  }
-  // track imports b/c they can use 'for' token like so: import "./b" for B
-  if (currentType == TOKEN_IMPORT)
-    isImport = true;
-  if (isImport)
-  {
-    if (currentType == TOKEN_LINE)
-      isImport = false;
-  }
-  // conditionals and loops queue the curly brace newline hack
-  else if (currentType == TOKEN_IF
-    || currentType == TOKEN_FOR
-    || currentType == TOKEN_WHILE
-  )
-    isCurlyQueued = true;
-  // ()'s
-  else if (currentType == TOKEN_LEFT_PAREN)
-    parenStack[parenIndex] += 1;
-  else if (currentType == TOKEN_RIGHT_PAREN)
-  {
-    parenStack[parenIndex] -= 1;
-    if (parenStack[parenIndex] == 0 && isCurlyQueued)
-      doCurly = true;
-  }
-  // {}'s inside ()'s
-  if (currentType == TOKEN_LEFT_BRACE && parenStack[parenIndex])
-  {
-    parenIndex += 1;
-    parenStack[parenIndex] = 0;
-  }
-  else if (currentType == TOKEN_RIGHT_BRACE
-    && parenIndex > 0
-    && parenStack[parenIndex - 1]
-  )
-    parenIndex -= 1;
-  // skip whitespace inside ()'s or immediately after )'s if conditionals
-  if (parenStack[parenIndex] || doCurly || isGenericHack)
-  {
-    if (doCurly)
-      isCurlyQueued = false;
-    for (int i = 0; parser->currentChar[i] != '\0'; ++i)
-    {
-      char c = parser->currentChar[i];
-      if (c != ' ' && c != '\r' && c != '\n' && c != '\t')
-      {
-        parser->currentChar += i;
-        break;
-      }
-      else if (c == '\n')
-        parser->currentLine++;
-    }
-  }
-}
-
-// earliest iteration
-static void newlineHacksOld(Parser* parser)
-{
-  static bool isCurlyQueued = false;
-  if (parser->current.type == TOKEN_IF
-    || parser->current.type == TOKEN_FOR
-  )
-    isCurlyQueued = true;
-  else if (isCurlyQueued
-    && parser->current.type == TOKEN_RIGHT_PAREN
-  )
-  {
-    isCurlyQueued = false;
-    // TODO this doesn't support multi-line strings
-    fprintf(stderr, "numParens = %d\n", parser->parens[parser->numParens]);
-    for (int i = 0; parser->currentChar[i] != '\0'; ++i)
-    {
-      char c = parser->currentChar[i];
-      if (c == ' ' || c == '\r' || c == '\n' || c == '\t')
-        continue;
-      else if (c == '{')
-        parser->currentChar += i;
-      break;
-    }
-  }
-}
-#endif
 
 // Lex the next token and store it in [parser.next].
 static void nextToken(Parser* parser)
